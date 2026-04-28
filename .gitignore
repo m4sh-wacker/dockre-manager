@@ -46,6 +46,8 @@ dev.log
 test
 prompt
 
+*.next*
+
 server.log
 # Skills directory
 /skills/
