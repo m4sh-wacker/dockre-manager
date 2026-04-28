@@ -14,7 +14,7 @@ node_modules
 /coverage
 
 # next.js
-/.next/
+/.next/*
 /out/
 
 # production
@@ -46,7 +46,6 @@ dev.log
 test
 prompt
 
-*.next*
 
 server.log
 # Skills directory
