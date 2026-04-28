@@ -1,16 +1,16 @@
-import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { create } from 'zustand'
+import { persist } from 'zustand/middleware'
 
 interface User {
-  username: string;
-  isAuthenticated: boolean;
+  username: string
+  isAuthenticated: boolean
 }
 
 interface AuthState {
-  user: User | null;
-  isAuthenticated: boolean;
-  login: (username: string, password: string) => Promise<boolean>;
-  logout: () => void;
+  user: User | null
+  isAuthenticated: boolean
+  login: (username: string, password: string) => Promise<boolean>
+  logout: () => void
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -18,23 +18,36 @@ export const useAuthStore = create<AuthState>()(
     (set) => ({
       user: null,
       isAuthenticated: false,
+
       login: async (username: string, password: string) => {
-        // Mock authentication - in production, this would call an API
-        if (username === 'admin' && password === 'admin123') {
-          set({ 
-            user: { username, isAuthenticated: true }, 
-            isAuthenticated: true 
-          });
-          return true;
+        try {
+          const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, password }),
+          })
+
+          if (!response.ok) return false
+
+          const data = await response.json()
+          localStorage.setItem('token', data.token)
+
+          set({
+            user: { username, isAuthenticated: true },
+            isAuthenticated: true,
+          })
+
+          return true
+        } catch {
+          return false
         }
-        return false;
       },
+
       logout: () => {
-        set({ user: null, isAuthenticated: false });
+        localStorage.removeItem('token')
+        set({ user: null, isAuthenticated: false })
       },
     }),
-    {
-      name: 'docker-auth-storage',
-    }
+    { name: 'docker-auth-storage' }
   )
-);
+)
