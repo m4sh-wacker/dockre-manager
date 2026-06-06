@@ -39,7 +39,7 @@ src/                         Next.js app (UI, store, lib)
   components/                dashboard, modals, ui (shadcn)
   store/                     zustand stores (auth, docker)
   lib/                       api client + utils
-mini-services/docker-manager Go backend (handlers, db, docker exec)
+mini-services/               Go backend (handlers, db, docker exec)
 templates/                   deployable compose templates
 ```
 
@@ -112,7 +112,7 @@ identical on Windows and Linux). Pick the commands for your OS.
 cp .env.example .env   # then edit DATABASE_URL / JWT_SECRET if needed
 
 # backend
-cd mini-services/docker-manager
+cd mini-services
 go mod tidy && go build -o docker-manager && ./docker-manager
 
 # frontend (in another terminal)
@@ -125,7 +125,7 @@ npm install && npm run dev
 Copy-Item .env.example .env   # then edit DATABASE_URL / JWT_SECRET if needed
 
 # backend
-cd mini-services/docker-manager
+cd mini-services
 go mod tidy ; go build -o docker-manager.exe ; .\docker-manager.exe
 
 # frontend (in another terminal)

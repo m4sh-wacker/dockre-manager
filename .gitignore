@@ -14,9 +14,9 @@ build/
 dist/
 
 # go backend artifacts
-mini-services/docker-manager/docker-manager
-mini-services/docker-manager/docker-manager.exe
-mini-services/docker-manager/data/
+mini-services/docker-manager
+mini-services/docker-manager.exe
+mini-services/data/
 
 # env
 .env

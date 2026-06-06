@@ -13,10 +13,10 @@ import (
         "github.com/gorilla/mux"
 )
 
-// Template directory from env with default (relative to the backend binary,
-// pointing at the project-root /templates folder).
+// Template directory from env with default (relative to the backend binary in
+// mini-services/, pointing at the project-root /templates folder).
 func getTemplateDir() string {
-        return getEnv("TEMPLATE_DIR", "../../templates")
+        return getEnv("TEMPLATE_DIR", "../templates")
 }
 
 // extractPortVars parses a docker-compose YAML content and extracts ${VAR_NAME} patterns
