@@ -1,0 +1,59 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(cuid())
+  username     String   @unique
+  passwordHash String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model Project {
+  id           String      @id @default(cuid())
+  name         String
+  template     String      @default("")
+  status       String      @default("running")
+  frontendPort Int?
+  backendPort  Int?
+  cpu          Float       @default(0)
+  memory       Float       @default(0)
+  expiresAt    DateTime
+  alwaysOn     Boolean     @default(false)
+  containerId  String      @default("")
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  containers   Container[]
+  logs         Log[]
+}
+
+model Container {
+  id          String   @id @default(cuid())
+  projectId   String
+  name        String
+  image       String
+  status      String   @default("running")
+  containerId String   @default("")
+  ports       String   @default("")
+  cpu         Float    @default(0)
+  memory      Float    @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+model Log {
+  id          String   @id @default(cuid())
+  projectId   String
+  containerId String?
+  level       String   @default("info")
+  message     String
+  timestamp   DateTime @default(now())
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
