@@ -78,10 +78,11 @@ func main() {
 	// Setup router
 	router := mux.NewRouter()
 
-	// Apply global middleware
+	// Apply global middleware. CORS is applied at the top level (wrapping the
+	// whole router below) instead of via router.Use, so it also covers preflight
+	// OPTIONS requests that don't match a specific route.
 	router.Use(recoveryMiddleware)
 	router.Use(loggingMiddleware)
-	router.Use(corsMiddleware)
 
 	// Health check endpoint
 	router.HandleFunc("/api/health", handleHealthCheck).Methods("GET")
@@ -100,7 +101,7 @@ func main() {
 	// Create HTTP server
 	srv := &http.Server{
 		Addr:         fmt.Sprintf(":%d", port),
-		Handler:      router,
+		Handler:      corsMiddleware(router),
 		ReadTimeout:  30 * time.Second,
 		WriteTimeout: 30 * time.Second,
 		IdleTimeout:  60 * time.Second,
