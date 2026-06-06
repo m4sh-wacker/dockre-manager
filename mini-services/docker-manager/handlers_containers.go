@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -32,24 +33,25 @@ func handleListContainers(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	var groups []ProjectGroup
-	for name, containers := range projectMap {
-		groups = append(groups, ProjectGroup{
-			Name:       name,
-			Containers: containers,
-		})
+	// Sort project names alphabetically and containers within each project by
+	// name, so the list order stays stable across refreshes / state changes.
+	names := make([]string, 0, len(projectMap))
+	for name := range projectMap {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	groups := []ProjectGroup{}
+	for _, name := range names {
+		cs := projectMap[name]
+		sort.Slice(cs, func(i, j int) bool { return cs[i].Name < cs[j].Name })
+		groups = append(groups, ProjectGroup{Name: name, Containers: cs})
 	}
 
-	// Add standalone containers as a group
+	// Add standalone containers as a group (always last)
 	if len(standalone) > 0 {
-		groups = append(groups, ProjectGroup{
-			Name:       "standalone",
-			Containers: standalone,
-		})
-	}
-
-	if groups == nil {
-		groups = []ProjectGroup{}
+		sort.Slice(standalone, func(i, j int) bool { return standalone[i].Name < standalone[j].Name })
+		groups = append(groups, ProjectGroup{Name: "standalone", Containers: standalone})
 	}
 
 	respondJSON(w, http.StatusOK, groups)

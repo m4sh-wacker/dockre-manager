@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"net"
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -141,28 +142,52 @@ func getLastAllocatedPort() int {
 	return int(maxPort.Int64)
 }
 
-func allocatePort(projectName, portVar string) int {
-	lastPort := getLastAllocatedPort()
-	newPort := lastPort + 1
+// isPortAllocated reports whether a port is already recorded in the DB.
+func isPortAllocated(port int) bool {
+	var count int
+	if err := db.QueryRow("SELECT COUNT(*) FROM port_allocations WHERE port_number = ?", port).Scan(&count); err != nil {
+		return false
+	}
+	return count > 0
+}
 
-	_, err := db.Exec(
-		"INSERT INTO port_allocations (project_name, port_var, port_number) VALUES (?, ?, ?)",
-		projectName, portVar, newPort,
-	)
+// isPortFree reports whether a TCP port is currently bindable on the host.
+func isPortFree(port int) bool {
+	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 	if err != nil {
-		log.Printf("Error allocating port: %v", err)
-		newPort = lastPort + 2
-		_, err = db.Exec(
-			"INSERT INTO port_allocations (project_name, port_var, port_number) VALUES (?, ?, ?)",
-			projectName, portVar, newPort,
-		)
-		if err != nil {
-			log.Printf("Error allocating port (retry): %v", err)
-			return 0
-		}
+		return false
+	}
+	_ = ln.Close()
+	return true
+}
+
+// allocatePort reserves the next port that is BOTH unused in the DB and not
+// currently bound on the host, guaranteeing no duplicate ports are ever issued.
+func allocatePort(projectName, portVar string) int {
+	candidate := getLastAllocatedPort() + 1
+	if candidate < 8000 {
+		candidate = 8000
 	}
 
-	return newPort
+	for candidate < 65535 {
+		if !isPortAllocated(candidate) && isPortFree(candidate) {
+			_, err := db.Exec(
+				"INSERT INTO port_allocations (project_name, port_var, port_number) VALUES (?, ?, ?)",
+				projectName, portVar, candidate,
+			)
+			if err != nil {
+				// Likely a race on the unique port; try the next one.
+				log.Printf("Error reserving port %d: %v", candidate, err)
+				candidate++
+				continue
+			}
+			return candidate
+		}
+		candidate++
+	}
+
+	log.Printf("No free port available for %s/%s", projectName, portVar)
+	return 0
 }
 
 // Activity log functions

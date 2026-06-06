@@ -166,6 +166,61 @@ These are all the commands it issues:
 > System metrics (CPU / memory / disk) are read directly from the OS via
 > `gopsutil`, also cross-platform.
 
+## Templates
+
+A template is just a folder under [`templates/`](templates/) that contains a
+`docker-compose.yaml` (or `docker-compose.yml`). It shows up automatically in
+**Create New Service → Quick Deploy**.
+
+### Ports are automatic
+
+Never hard-code a host port. Use a `${VAR}` placeholder for the host side of a
+port mapping:
+
+```yaml
+ports:
+  - "${WEB_PORT}:80"   # 80 is the container port, WEB_PORT is auto-assigned
+```
+
+On deploy, the backend picks a **free, never-duplicated** host port for each
+`${VAR}`, writes them to a generated `.env`, and runs the stack. The chosen port
+is shown to the user on the service's detail page (e.g. `localhost:8001`) — users
+can't choose it, only see it.
+
+### Two kinds of templates
+
+**1. Prebuilt image (simplest — recommended).** No Dockerfile needed:
+
+```yaml
+# templates/nginx-static/docker-compose.yaml
+services:
+  web:
+    image: nginx:alpine
+    ports:
+      - "${WEB_PORT}:80"
+    restart: unless-stopped
+```
+
+**2. Build from source.** Use `build: .` and put the **whole project** in the
+folder, including a `Dockerfile`. This is how a large project is templated — drop
+your entire app (source, `Dockerfile`, configs) into a folder under `templates/`:
+
+```
+templates/node-app/
+├── docker-compose.yaml   # build: .  +  "${APP_PORT}:3000"
+├── Dockerfile            # how to build the image
+├── package.json          # your project files...
+└── server.js
+```
+
+> Common deploy error — `failed to read dockerfile: open Dockerfile: no such
+> file or directory`: your compose uses `build: .` but the folder has no
+> `Dockerfile`. Either add a `Dockerfile` (+ source) or switch to a prebuilt
+> `image:`.
+
+The bundled examples: `nginx-static` and `python-api` (prebuilt images, deploy
+instantly) and `node-app` (build-from-source, self-contained).
+
 ## Configuration (`.env`)
 
 | Variable              | Description                                  |

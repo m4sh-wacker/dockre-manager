@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Plus, Play, Square, RefreshCw, FileText, Terminal, Pause, Trash2,
-  Cpu, HardDrive, Loader2, Filter, ChevronRight, ArrowLeft,
+  Cpu, HardDrive, Loader2, Filter, ChevronRight, ArrowLeft, ExternalLink,
   Container, Server, MemoryStick, FolderOpen, Box
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -54,6 +54,30 @@ function extractPortMappings(portsStr: string): string[] {
     }
   }
   return mappings;
+}
+
+// Published host ports for a container, e.g. "0.0.0.0:8001->80/tcp" -> ["8001"]
+function extractHostPorts(portsStr: string): string[] {
+  if (!portsStr) return [];
+  const ports: string[] = [];
+  for (const part of portsStr.split(', ')) {
+    const m = part.match(/:(\d+)->/);
+    if (m && !ports.includes(m[1])) ports.push(m[1]);
+  }
+  return ports;
+}
+
+// Threshold-based colors for resource usage (shared CPU/memory/disk look)
+function resourceBarColor(percent: number): string {
+  if (percent > 80) return 'bg-red-400';
+  if (percent > 50) return 'bg-amber-400';
+  return 'bg-emerald-400';
+}
+
+function resourceTextColor(percent: number): string {
+  if (percent > 80) return 'text-red-400';
+  if (percent > 50) return 'text-amber-400';
+  return 'text-emerald-400';
 }
 
 interface ContainerManagementProps {
@@ -300,6 +324,7 @@ export function ContainerManagement({ onCreateService }: ContainerManagementProp
     const projectRunning = project.containers?.filter(c => c.state === 'running').length || 0;
     const projectTotal = project.containers?.length || 0;
     const containers = project.containers || [];
+    const hostPorts = Array.from(new Set(containers.flatMap(c => extractHostPorts(c.ports))));
 
     return (
       <div className="space-y-6">
@@ -326,6 +351,39 @@ export function ContainerManagement({ onCreateService }: ContainerManagementProp
             {renderServiceActions(project)}
           </div>
         </motion.div>
+
+        {/* Project info + access ports */}
+        <Card className="bg-card/50 border-border/50">
+          <CardContent className="p-4">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+              <div className="flex items-center gap-2 text-sm shrink-0">
+                <FolderOpen className="w-4 h-4 text-primary" />
+                <span className="text-muted-foreground">Service</span>
+                <span className="font-medium text-foreground">{project.name}</span>
+              </div>
+              <div className="hidden sm:block w-px h-4 bg-border/50" />
+              <div className="flex items-center gap-2 flex-wrap text-sm">
+                <ExternalLink className="w-4 h-4 text-muted-foreground" />
+                <span className="text-muted-foreground">Access</span>
+                {hostPorts.length === 0 ? (
+                  <span className="text-xs text-muted-foreground/70">No published ports</span>
+                ) : (
+                  hostPorts.map(p => (
+                    <a
+                      key={p}
+                      href={`http://localhost:${p}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-mono text-xs px-2 py-1 rounded-md bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+                    >
+                      localhost:{p}
+                    </a>
+                  ))
+                )}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
 
         <Card className="bg-card/50 border-border/50 overflow-hidden">
           <div className="px-4 py-3 border-b border-border/30 flex items-center gap-2">
@@ -462,10 +520,10 @@ export function ContainerManagement({ onCreateService }: ContainerManagementProp
                       <Cpu className="w-4 h-4 text-primary" />
                     </div>
                     <span className="text-sm font-medium text-foreground">CPU</span>
-                    <span className="ml-auto text-lg font-semibold text-primary">{systemResources?.cpu_percent?.toFixed(1) ?? '0.0'}%</span>
+                    <span className={cn('ml-auto text-lg font-semibold', resourceTextColor(systemResources?.cpu_percent ?? 0))}>{systemResources?.cpu_percent?.toFixed(1) ?? '0.0'}%</span>
                   </div>
                   <div className="h-1.5 bg-muted rounded-full overflow-hidden">
-                    <div className="h-full bg-primary rounded-full transition-all" style={{ width: `${Math.min(systemResources?.cpu_percent ?? 0, 100)}%` }} />
+                    <div className={cn('h-full rounded-full transition-all', resourceBarColor(systemResources?.cpu_percent ?? 0))} style={{ width: `${Math.min(systemResources?.cpu_percent ?? 0, 100)}%` }} />
                   </div>
                 </CardContent>
               </Card>
@@ -477,10 +535,10 @@ export function ContainerManagement({ onCreateService }: ContainerManagementProp
                       <MemoryStick className="w-4 h-4 text-amber-400" />
                     </div>
                     <span className="text-sm font-medium text-foreground">Memory</span>
-                    <span className="ml-auto text-lg font-semibold text-amber-400">{systemResources?.memory_percent?.toFixed(1) ?? '0.0'}%</span>
+                    <span className={cn('ml-auto text-lg font-semibold', resourceTextColor(systemResources?.memory_percent ?? 0))}>{systemResources?.memory_percent?.toFixed(1) ?? '0.0'}%</span>
                   </div>
                   <div className="h-1.5 bg-muted rounded-full overflow-hidden">
-                    <div className="h-full bg-amber-400 rounded-full transition-all" style={{ width: `${Math.min(systemResources?.memory_percent ?? 0, 100)}%` }} />
+                    <div className={cn('h-full rounded-full transition-all', resourceBarColor(systemResources?.memory_percent ?? 0))} style={{ width: `${Math.min(systemResources?.memory_percent ?? 0, 100)}%` }} />
                   </div>
                   <p className="text-[10px] text-muted-foreground mt-1">{(systemResources?.memory_used ?? 0).toFixed(0)} / {(systemResources?.memory_total ?? 0).toFixed(0)} MB</p>
                 </CardContent>
@@ -493,10 +551,10 @@ export function ContainerManagement({ onCreateService }: ContainerManagementProp
                       <HardDrive className="w-4 h-4 text-emerald-400" />
                     </div>
                     <span className="text-sm font-medium text-foreground">Disk</span>
-                    <span className="ml-auto text-lg font-semibold text-emerald-400">{systemResources?.disk_percent?.toFixed(1) ?? '0.0'}%</span>
+                    <span className={cn('ml-auto text-lg font-semibold', resourceTextColor(systemResources?.disk_percent ?? 0))}>{systemResources?.disk_percent?.toFixed(1) ?? '0.0'}%</span>
                   </div>
                   <div className="h-1.5 bg-muted rounded-full overflow-hidden">
-                    <div className="h-full bg-emerald-400 rounded-full transition-all" style={{ width: `${Math.min(systemResources?.disk_percent ?? 0, 100)}%` }} />
+                    <div className={cn('h-full rounded-full transition-all', resourceBarColor(systemResources?.disk_percent ?? 0))} style={{ width: `${Math.min(systemResources?.disk_percent ?? 0, 100)}%` }} />
                   </div>
                   <p className="text-[10px] text-muted-foreground mt-1">{(systemResources?.disk_used ?? 0).toFixed(0)} / {(systemResources?.disk_total ?? 0).toFixed(0)} GB</p>
                 </CardContent>
