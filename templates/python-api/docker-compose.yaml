@@ -1,0 +1,7 @@
+services:
+  api:
+    image: python:3.12-slim
+    command: python -m http.server 8000
+    ports:
+      - "${API_PORT}:8000"
+    restart: unless-stopped
