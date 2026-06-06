@@ -1,10 +1,10 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Plus, Play, Square, RefreshCw, FileText, Terminal, Pause, Trash2,
-  Cpu, HardDrive, Loader2, Filter, ChevronDown, ChevronRight,
+  Cpu, HardDrive, Loader2, Filter, ChevronRight, ArrowLeft,
   Container, Server, MemoryStick, FolderOpen, Box
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -65,7 +65,7 @@ export function ContainerManagement({ onCreateService }: ContainerManagementProp
   const { toast } = useToast();
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [stateFilter, setStateFilter] = useState<string>('all');
-  const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set());
+  const [selectedProjectName, setSelectedProjectName] = useState<string | null>(null);
   const [loadingActions, setLoadingActions] = useState<Record<string, string[]>>({});
   const [loadingProjects, setLoadingProjects] = useState<Record<string, string>>({});
 
@@ -183,15 +183,6 @@ export function ContainerManagement({ onCreateService }: ContainerManagementProp
     return loadingActions[containerId]?.includes(action);
   };
 
-  const toggleProject = (projectName: string) => {
-    setExpandedProjects(prev => {
-      const next = new Set(prev);
-      if (next.has(projectName)) next.delete(projectName);
-      else next.add(projectName);
-      return next;
-    });
-  };
-
   // Flatten all containers for stats
   const allContainers = projects.flatMap(p => p.containers || []);
   const runningCount = allContainers.filter(c => c.state === 'running').length;
@@ -205,522 +196,415 @@ export function ContainerManagement({ onCreateService }: ContainerManagementProp
     return matchesState;
   });
 
-  return (
-    <TooltipProvider>
+  // The service the user drilled into (null = show the list)
+  const selectedProject = selectedProjectName
+    ? projects.find(p => p.name === selectedProjectName) ?? null
+    : null;
+
+  // Service-level action buttons (apply to every container in the service)
+  const renderServiceActions = (project: ProjectGroup) => {
+    const projectRunning = project.containers?.filter(c => c.state === 'running').length || 0;
+    const projectTotal = project.containers?.length || 0;
+    return (
+      <div className="flex items-center gap-1 shrink-0">
+        {projectRunning < projectTotal && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-emerald-400 hover:bg-emerald-400/10" onClick={() => handleProjectAction(project, 'start')} disabled={isProjectBusy(project.name)}>
+                {isProjectAction(project.name, 'start') ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Start all</TooltipContent>
+          </Tooltip>
+        )}
+        {projectRunning > 0 && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-red-400 hover:bg-red-400/10" onClick={() => handleProjectAction(project, 'stop')} disabled={isProjectBusy(project.name)}>
+                {isProjectAction(project.name, 'stop') ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Square className="w-3.5 h-3.5" />}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Stop all</TooltipContent>
+          </Tooltip>
+        )}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-primary hover:bg-primary/10" onClick={() => handleProjectAction(project, 'restart')} disabled={isProjectBusy(project.name)}>
+              {isProjectAction(project.name, 'restart') ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Restart all</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-red-400 hover:bg-red-400/10" onClick={() => handleProjectAction(project, 'remove')} disabled={isProjectBusy(project.name)}>
+              {isProjectAction(project.name, 'remove') ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Remove all</TooltipContent>
+        </Tooltip>
+      </div>
+    );
+  };
+
+  // A single container row with all its actions on the right
+  const renderContainerRow = (container: ContainerInfo) => {
+    const config = getStateConfig(container.state);
+    const portMappings = extractPortMappings(container.ports);
+    const isRunning = container.state === 'running';
+
+    return (
+      <div key={container.id} className="flex items-center gap-3 p-4 border-b border-border/20 last:border-b-0 hover:bg-muted/20 transition-colors">
+        {/* Container Info */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-1">
+            <span className={cn('w-2 h-2 rounded-full shrink-0', config.dotClass)} />
+            <span className="text-sm font-medium text-foreground truncate">{container.name}</span>
+            <Badge className={cn('text-[10px] px-1.5 py-0 h-4', config.bgColor, config.color, 'border-0')}>{config.label}</Badge>
+          </div>
+          <div className="flex items-center gap-3 text-xs text-muted-foreground ml-4 flex-wrap">
+            <span className="font-mono">{container.image}</span>
+            {container.service && (<><span className="text-muted-foreground/30">•</span><span>{container.service}</span></>)}
+            {portMappings.length > 0 && (<><span className="text-muted-foreground/30">•</span><span className="text-primary/80">{portMappings.join(', ')}</span></>)}
+          </div>
+          <p className="text-[10px] text-muted-foreground/60 ml-4 mt-0.5">{container.status}</p>
+        </div>
+
+        {/* Actions - all on the right */}
+        <div className="flex items-center gap-1 shrink-0">
+          {container.state === 'running' ? (
+            <Tooltip><TooltipTrigger asChild><Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-red-400 hover:bg-red-400/10" onClick={() => handleAction(container, 'stop')} disabled={isActionLoading(container.id, 'stop')}>{isActionLoading(container.id, 'stop') ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Square className="w-3.5 h-3.5" />}</Button></TooltipTrigger><TooltipContent>Stop</TooltipContent></Tooltip>
+          ) : (
+            <Tooltip><TooltipTrigger asChild><Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-emerald-400 hover:bg-emerald-400/10" onClick={() => handleAction(container, 'start')} disabled={isActionLoading(container.id, 'start')}>{isActionLoading(container.id, 'start') ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}</Button></TooltipTrigger><TooltipContent>Start</TooltipContent></Tooltip>
+          )}
+          <Tooltip><TooltipTrigger asChild><Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-primary hover:bg-primary/10" onClick={() => handleAction(container, 'restart')} disabled={isActionLoading(container.id, 'restart')}>{isActionLoading(container.id, 'restart') ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}</Button></TooltipTrigger><TooltipContent>Restart</TooltipContent></Tooltip>
+          <div className="w-px h-4 bg-border/50 mx-0.5" />
+          {container.state === 'running' && (
+            <Tooltip><TooltipTrigger asChild><Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-amber-400 hover:bg-amber-400/10" onClick={() => handleAction(container, 'pause')} disabled={isActionLoading(container.id, 'pause')}>{isActionLoading(container.id, 'pause') ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Pause className="w-3.5 h-3.5" />}</Button></TooltipTrigger><TooltipContent>Pause</TooltipContent></Tooltip>
+          )}
+          {container.state === 'paused' && (
+            <Tooltip><TooltipTrigger asChild><Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-amber-400 hover:bg-amber-400/10" onClick={() => handleAction(container, 'unpause')} disabled={isActionLoading(container.id, 'unpause')}>{isActionLoading(container.id, 'unpause') ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}</Button></TooltipTrigger><TooltipContent>Unpause</TooltipContent></Tooltip>
+          )}
+          <Tooltip><TooltipTrigger asChild><Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-foreground hover:bg-muted" onClick={() => openLogs(container)}><FileText className="w-3.5 h-3.5" /></Button></TooltipTrigger><TooltipContent>Logs</TooltipContent></Tooltip>
+          {isRunning && (
+            <Tooltip><TooltipTrigger asChild><Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-foreground hover:bg-muted" onClick={() => openTerminal(container)}><Terminal className="w-3.5 h-3.5" /></Button></TooltipTrigger><TooltipContent>Terminal</TooltipContent></Tooltip>
+          )}
+          <Tooltip><TooltipTrigger asChild><Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-red-400 hover:bg-red-400/10" onClick={() => handleAction(container, 'remove')} disabled={isActionLoading(container.id, 'remove')}>{isActionLoading(container.id, 'remove') ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}</Button></TooltipTrigger><TooltipContent>Remove</TooltipContent></Tooltip>
+        </div>
+      </div>
+    );
+  };
+
+  // Detail "page" for a single service (same UI, separate view)
+  const renderServiceDetail = (project: ProjectGroup) => {
+    const projectRunning = project.containers?.filter(c => c.state === 'running').length || 0;
+    const projectTotal = project.containers?.length || 0;
+    const containers = project.containers || [];
+
+    return (
       <div className="space-y-6">
-        {/* Header */}
-        <motion.div
-          initial={{ opacity: 0, y: -20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4"
-        >
-          <div>
-            <h1 className="text-2xl font-semibold text-foreground">Services</h1>
-            <p className="text-muted-foreground text-sm mt-1">
-              Manage and monitor your Docker containers
-            </p>
+        <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div className="flex items-center gap-3 min-w-0">
+            <Button variant="outline" size="icon" onClick={() => setSelectedProjectName(null)} className="h-10 w-10 border-border/50 hover:bg-muted shrink-0">
+              <ArrowLeft className="w-4 h-4" />
+            </Button>
+            <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+              <Server className="w-5 h-5 text-primary" />
+            </div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <h1 className="text-2xl font-semibold text-foreground truncate">{project.name}</h1>
+                <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 shrink-0">{projectRunning}/{projectTotal} running</Badge>
+              </div>
+              <p className="text-muted-foreground text-sm mt-0.5">Service details &amp; containers</p>
+            </div>
           </div>
           <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="icon"
-              onClick={handleRefresh}
-              disabled={isRefreshing || isLoading}
-              className="h-10 w-10 border-border/50 hover:bg-muted"
-            >
+            <Button variant="outline" size="icon" onClick={handleRefresh} disabled={isRefreshing || isLoading} className="h-10 w-10 border-border/50 hover:bg-muted">
               <RefreshCw className={cn('w-4 h-4', (isRefreshing || isLoading) && 'animate-spin')} />
             </Button>
-            <Button
-              onClick={onCreateService}
-              className="bg-primary hover:bg-primary/90 text-primary-foreground glow-primary-sm"
-            >
-              <Plus className="w-4 h-4 mr-2" />
-              Create New Service
-            </Button>
+            {renderServiceActions(project)}
           </div>
         </motion.div>
 
-        {/* Stats Cards */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.1 }}
-          className="grid grid-cols-2 sm:grid-cols-4 gap-4"
-        >
-          <Card className="bg-gradient-to-br from-emerald-500/[0.06] to-card/50 border-border/50 overflow-hidden relative group">
-            <CardContent className="p-4 relative">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-lg bg-emerald-500/10 flex items-center justify-center">
-                  <Play className="w-5 h-5 text-emerald-400" />
-                </div>
-                <div>
-                  <p className="text-2xl font-semibold text-foreground">{runningCount}</p>
-                  <p className="text-xs text-muted-foreground">Running</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+        <Card className="bg-card/50 border-border/50 overflow-hidden">
+          <div className="px-4 py-3 border-b border-border/30 flex items-center gap-2">
+            <Box className="w-4 h-4 text-muted-foreground" />
+            <span className="text-sm font-medium text-foreground">Containers</span>
+            <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4">{containers.length}</Badge>
+          </div>
+          <div>
+            {containers.length === 0 ? (
+              <div className="p-8 text-center text-sm text-muted-foreground">No containers in this service.</div>
+            ) : (
+              containers.map(c => renderContainerRow(c))
+            )}
+          </div>
+        </Card>
+      </div>
+    );
+  };
 
-          <Card className="bg-gradient-to-br from-red-500/[0.06] to-card/50 border-border/50 overflow-hidden relative group">
-            <CardContent className="p-4 relative">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-lg bg-red-500/10 flex items-center justify-center">
-                  <Square className="w-5 h-5 text-red-400" />
-                </div>
-                <div>
-                  <p className="text-2xl font-semibold text-foreground">{stoppedCount}</p>
-                  <p className="text-xs text-muted-foreground">Stopped</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="bg-gradient-to-br from-primary/[0.06] to-card/50 border-border/50 overflow-hidden relative group">
-            <CardContent className="p-4 relative">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
-                  <FolderOpen className="w-5 h-5 text-primary" />
-                </div>
-                <div>
-                  <p className="text-2xl font-semibold text-foreground">{projects.length}</p>
-                  <p className="text-xs text-muted-foreground">Projects</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="bg-gradient-to-br from-amber-500/[0.06] to-card/50 border-border/50 overflow-hidden relative group">
-            <CardContent className="p-4 relative">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-lg bg-amber-500/10 flex items-center justify-center">
-                  <Container className="w-5 h-5 text-amber-400" />
-                </div>
-                <div>
-                  <p className="text-2xl font-semibold text-foreground">{allContainers.length}</p>
-                  <p className="text-xs text-muted-foreground">Total</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </motion.div>
-
-        {/* System Resources */}
-        {systemResources && (
+  return (
+    <TooltipProvider>
+      {selectedProject ? (
+        renderServiceDetail(selectedProject)
+      ) : (
+        <div className="space-y-6">
+          {/* Header */}
           <motion.div
-            initial={{ opacity: 0, y: 20 }}
+            initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.12 }}
-            className="grid grid-cols-1 sm:grid-cols-3 gap-4"
+            className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4"
           >
-            <Card className="bg-card/50 border-border/50">
-              <CardContent className="p-4">
-                <div className="flex items-center gap-3 mb-2">
-                  <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
-                    <Cpu className="w-4 h-4 text-primary" />
-                  </div>
-                  <span className="text-sm font-medium text-foreground">CPU</span>
-                  <span className="ml-auto text-lg font-semibold text-primary">{systemResources?.cpu_percent?.toFixed(1) ?? '0.0'}%</span>
-                </div>
-                <div className="h-1.5 bg-muted rounded-full overflow-hidden">
-                 <div className="h-full bg-primary rounded-full transition-all" style={{ width: `${Math.min(systemResources?.cpu_percent ?? 0, 100)}%` }} />
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card className="bg-card/50 border-border/50">
-              <CardContent className="p-4">
-                <div className="flex items-center gap-3 mb-2">
-                  <div className="w-8 h-8 rounded-lg bg-amber-500/10 flex items-center justify-center">
-                    <MemoryStick className="w-4 h-4 text-amber-400" />
-                  </div>
-                  <span className="text-sm font-medium text-foreground">Memory</span>
-                  <span className="ml-auto text-lg font-semibold text-amber-400">{systemResources?.memory_percent?.toFixed(1) ?? '0.0'}%</span>
-                </div>
-                <div className="h-1.5 bg-muted rounded-full overflow-hidden">
-                 <div className="h-full bg-amber-400 rounded-full transition-all" style={{ width: `${Math.min(systemResources?.memory_percent ?? 0, 100)}%` }} />
-                </div>
-               <p className="text-[10px] text-muted-foreground mt-1">{(systemResources?.memory_used ?? 0).toFixed(0)} / {(systemResources?.memory_total ?? 0).toFixed(0)} MB</p>
-              </CardContent>
-            </Card>
-
-            <Card className="bg-card/50 border-border/50">
-              <CardContent className="p-4">
-                <div className="flex items-center gap-3 mb-2">
-                  <div className="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center">
-                    <HardDrive className="w-4 h-4 text-emerald-400" />
-                  </div>
-                  <span className="text-sm font-medium text-foreground">Disk</span>
-                  <span className="ml-auto text-lg font-semibold text-emerald-400">{systemResources?.disk_percent?.toFixed(1) ?? '0.0'}%</span>
-                </div>
-                <div className="h-1.5 bg-muted rounded-full overflow-hidden">
-                 <div className="h-full bg-emerald-400 rounded-full transition-all" style={{ width: `${Math.min(systemResources?.disk_percent ?? 0, 100)}%` }} />
-                </div>
-               <p className="text-[10px] text-muted-foreground mt-1">{(systemResources?.disk_used ?? 0).toFixed(0)} / {(systemResources?.disk_total ?? 0).toFixed(0)} GB</p>
-              </CardContent>
-            </Card>
-          </motion.div>
-        )}
-
-        {/* Filter */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.15 }}
-        >
-          <Select value={stateFilter} onValueChange={setStateFilter}>
-            <SelectTrigger className="w-full sm:w-[180px] bg-input/50 border-border/50">
-              <Filter className="w-4 h-4 mr-2 text-muted-foreground" />
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All States</SelectItem>
-              <SelectItem value="running">Running</SelectItem>
-              <SelectItem value="exited">Stopped</SelectItem>
-              <SelectItem value="paused">Paused</SelectItem>
-            </SelectContent>
-          </Select>
-        </motion.div>
-
-        {/* Loading State */}
-        {isLoading && projects.length === 0 && (
-          <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
-            <Loader2 className="w-8 h-8 animate-spin mb-4" />
-            <p className="text-sm">Loading containers...</p>
-          </div>
-        )}
-
-        {/* Empty State */}
-        {!isLoading && projects.length === 0 && (
-          <Card className="bg-card/50 border-border/50">
-            <CardContent className="p-12 flex flex-col items-center text-center">
-              <div className="w-16 h-16 rounded-2xl bg-muted/30 flex items-center justify-center mb-4">
-                <Box className="w-8 h-8 text-muted-foreground" />
-              </div>
-              <h3 className="text-lg font-medium text-foreground mb-1">No containers found</h3>
-              <p className="text-sm text-muted-foreground mb-4">
-                No Docker containers are currently running. Deploy a service to get started.
+            <div>
+              <h1 className="text-2xl font-semibold text-foreground">Services</h1>
+              <p className="text-muted-foreground text-sm mt-1">
+                Manage and monitor your Docker containers
               </p>
-              <Button onClick={onCreateService} className="bg-primary hover:bg-primary/90">
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={handleRefresh}
+                disabled={isRefreshing || isLoading}
+                className="h-10 w-10 border-border/50 hover:bg-muted"
+              >
+                <RefreshCw className={cn('w-4 h-4', (isRefreshing || isLoading) && 'animate-spin')} />
+              </Button>
+              <Button
+                onClick={onCreateService}
+                className="bg-primary hover:bg-primary/90 text-primary-foreground glow-primary-sm"
+              >
                 <Plus className="w-4 h-4 mr-2" />
                 Create New Service
               </Button>
-            </CardContent>
-          </Card>
-        )}
+            </div>
+          </motion.div>
 
-        {/* Container Groups */}
-        <div className="space-y-3">
-          <AnimatePresence>
-            {filteredProjects.map((project, index) => {
-              const isExpanded = expandedProjects.has(project.name);
-              const projectRunning = project.containers?.filter(c => c.state === 'running').length || 0;
-              const projectTotal = project.containers?.length || 0;
+          {/* Stats Cards */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.1 }}
+            className="grid grid-cols-2 sm:grid-cols-4 gap-4"
+          >
+            <Card className="bg-gradient-to-br from-emerald-500/[0.06] to-card/50 border-border/50 overflow-hidden relative group">
+              <CardContent className="p-4 relative">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-emerald-500/10 flex items-center justify-center">
+                    <Play className="w-5 h-5 text-emerald-400" />
+                  </div>
+                  <div>
+                    <p className="text-2xl font-semibold text-foreground">{runningCount}</p>
+                    <p className="text-xs text-muted-foreground">Running</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
 
-              return (
-                <motion.div
-                  key={project.name}
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -10 }}
-                  transition={{ delay: index * 0.05 }}
-                >
-                  <Card className="bg-card/50 border-border/50 overflow-hidden">
-                    {/* Project Header */}
-                    <div className="w-full flex items-center gap-3 p-4 hover:bg-muted/30 transition-colors">
-                      <button
-                        onClick={() => toggleProject(project.name)}
-                        className="flex items-center gap-3 flex-1 min-w-0 text-left"
-                      >
-                        <motion.div
-                          animate={{ rotate: isExpanded ? 0 : -90 }}
-                          transition={{ duration: 0.2 }}
-                        >
-                          <ChevronDown className="w-4 h-4 text-muted-foreground" />
-                        </motion.div>
-                        <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-                          <Server className="w-4 h-4 text-primary" />
-                        </div>
-                        <div className="flex items-center gap-2 min-w-0">
-                          <span className="font-medium text-foreground truncate">{project.name}</span>
-                          <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 shrink-0">
-                            {projectRunning}/{projectTotal} running
-                          </Badge>
-                        </div>
-                      </button>
+            <Card className="bg-gradient-to-br from-red-500/[0.06] to-card/50 border-border/50 overflow-hidden relative group">
+              <CardContent className="p-4 relative">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-red-500/10 flex items-center justify-center">
+                    <Square className="w-5 h-5 text-red-400" />
+                  </div>
+                  <div>
+                    <p className="text-2xl font-semibold text-foreground">{stoppedCount}</p>
+                    <p className="text-xs text-muted-foreground">Stopped</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
 
-                      {/* Status dots */}
-                      <div className="hidden sm:flex items-center gap-1 shrink-0">
-                        {project.containers?.slice(0, 4).map((c, i) => (
-                          <div
-                            key={i}
-                            className={cn('w-2 h-2 rounded-full', getStateConfig(c.state).dotClass)}
-                          />
-                        ))}
-                      </div>
+            <Card className="bg-gradient-to-br from-primary/[0.06] to-card/50 border-border/50 overflow-hidden relative group">
+              <CardContent className="p-4 relative">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
+                    <FolderOpen className="w-5 h-5 text-primary" />
+                  </div>
+                  <div>
+                    <p className="text-2xl font-semibold text-foreground">{projects.length}</p>
+                    <p className="text-xs text-muted-foreground">Projects</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
 
-                      {/* Service-level actions (apply to every container in the service) */}
-                      <div className="flex items-center gap-1 shrink-0">
-                        {projectRunning < projectTotal && (
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-7 w-7 text-muted-foreground hover:text-emerald-400 hover:bg-emerald-400/10"
-                                onClick={() => handleProjectAction(project, 'start')}
-                                disabled={isProjectBusy(project.name)}
-                              >
-                                {isProjectAction(project.name, 'start') ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
-                              </Button>
-                            </TooltipTrigger>
-                            <TooltipContent>Start all</TooltipContent>
-                          </Tooltip>
-                        )}
-                        {projectRunning > 0 && (
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-7 w-7 text-muted-foreground hover:text-red-400 hover:bg-red-400/10"
-                                onClick={() => handleProjectAction(project, 'stop')}
-                                disabled={isProjectBusy(project.name)}
-                              >
-                                {isProjectAction(project.name, 'stop') ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Square className="w-3.5 h-3.5" />}
-                              </Button>
-                            </TooltipTrigger>
-                            <TooltipContent>Stop all</TooltipContent>
-                          </Tooltip>
-                        )}
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7 text-muted-foreground hover:text-primary hover:bg-primary/10"
-                              onClick={() => handleProjectAction(project, 'restart')}
-                              disabled={isProjectBusy(project.name)}
-                            >
-                              {isProjectAction(project.name, 'restart') ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-                            </Button>
-                          </TooltipTrigger>
-                          <TooltipContent>Restart all</TooltipContent>
-                        </Tooltip>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7 text-muted-foreground hover:text-red-400 hover:bg-red-400/10"
-                              onClick={() => handleProjectAction(project, 'remove')}
-                              disabled={isProjectBusy(project.name)}
-                            >
-                              {isProjectAction(project.name, 'remove') ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
-                            </Button>
-                          </TooltipTrigger>
-                          <TooltipContent>Remove all</TooltipContent>
-                        </Tooltip>
-                      </div>
+            <Card className="bg-gradient-to-br from-amber-500/[0.06] to-card/50 border-border/50 overflow-hidden relative group">
+              <CardContent className="p-4 relative">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-amber-500/10 flex items-center justify-center">
+                    <Container className="w-5 h-5 text-amber-400" />
+                  </div>
+                  <div>
+                    <p className="text-2xl font-semibold text-foreground">{allContainers.length}</p>
+                    <p className="text-xs text-muted-foreground">Total</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </motion.div>
+
+          {/* System Resources */}
+          {systemResources && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.12 }}
+              className="grid grid-cols-1 sm:grid-cols-3 gap-4"
+            >
+              <Card className="bg-card/50 border-border/50">
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-3 mb-2">
+                    <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                      <Cpu className="w-4 h-4 text-primary" />
                     </div>
+                    <span className="text-sm font-medium text-foreground">CPU</span>
+                    <span className="ml-auto text-lg font-semibold text-primary">{systemResources?.cpu_percent?.toFixed(1) ?? '0.0'}%</span>
+                  </div>
+                  <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                    <div className="h-full bg-primary rounded-full transition-all" style={{ width: `${Math.min(systemResources?.cpu_percent ?? 0, 100)}%` }} />
+                  </div>
+                </CardContent>
+              </Card>
 
-                    {/* Containers List */}
-                    <AnimatePresence>
-                      {isExpanded && (
-                        <motion.div
-                          initial={{ height: 0, opacity: 0 }}
-                          animate={{ height: 'auto', opacity: 1 }}
-                          exit={{ height: 0, opacity: 0 }}
-                          transition={{ duration: 0.2 }}
-                          className="overflow-hidden"
+              <Card className="bg-card/50 border-border/50">
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-3 mb-2">
+                    <div className="w-8 h-8 rounded-lg bg-amber-500/10 flex items-center justify-center">
+                      <MemoryStick className="w-4 h-4 text-amber-400" />
+                    </div>
+                    <span className="text-sm font-medium text-foreground">Memory</span>
+                    <span className="ml-auto text-lg font-semibold text-amber-400">{systemResources?.memory_percent?.toFixed(1) ?? '0.0'}%</span>
+                  </div>
+                  <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                    <div className="h-full bg-amber-400 rounded-full transition-all" style={{ width: `${Math.min(systemResources?.memory_percent ?? 0, 100)}%` }} />
+                  </div>
+                  <p className="text-[10px] text-muted-foreground mt-1">{(systemResources?.memory_used ?? 0).toFixed(0)} / {(systemResources?.memory_total ?? 0).toFixed(0)} MB</p>
+                </CardContent>
+              </Card>
+
+              <Card className="bg-card/50 border-border/50">
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-3 mb-2">
+                    <div className="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center">
+                      <HardDrive className="w-4 h-4 text-emerald-400" />
+                    </div>
+                    <span className="text-sm font-medium text-foreground">Disk</span>
+                    <span className="ml-auto text-lg font-semibold text-emerald-400">{systemResources?.disk_percent?.toFixed(1) ?? '0.0'}%</span>
+                  </div>
+                  <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                    <div className="h-full bg-emerald-400 rounded-full transition-all" style={{ width: `${Math.min(systemResources?.disk_percent ?? 0, 100)}%` }} />
+                  </div>
+                  <p className="text-[10px] text-muted-foreground mt-1">{(systemResources?.disk_used ?? 0).toFixed(0)} / {(systemResources?.disk_total ?? 0).toFixed(0)} GB</p>
+                </CardContent>
+              </Card>
+            </motion.div>
+          )}
+
+          {/* Filter */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.15 }}
+          >
+            <Select value={stateFilter} onValueChange={setStateFilter}>
+              <SelectTrigger className="w-full sm:w-[180px] bg-input/50 border-border/50">
+                <Filter className="w-4 h-4 mr-2 text-muted-foreground" />
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All States</SelectItem>
+                <SelectItem value="running">Running</SelectItem>
+                <SelectItem value="exited">Stopped</SelectItem>
+                <SelectItem value="paused">Paused</SelectItem>
+              </SelectContent>
+            </Select>
+          </motion.div>
+
+          {/* Loading State */}
+          {isLoading && projects.length === 0 && (
+            <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
+              <Loader2 className="w-8 h-8 animate-spin mb-4" />
+              <p className="text-sm">Loading containers...</p>
+            </div>
+          )}
+
+          {/* Empty State */}
+          {!isLoading && projects.length === 0 && (
+            <Card className="bg-card/50 border-border/50">
+              <CardContent className="p-12 flex flex-col items-center text-center">
+                <div className="w-16 h-16 rounded-2xl bg-muted/30 flex items-center justify-center mb-4">
+                  <Box className="w-8 h-8 text-muted-foreground" />
+                </div>
+                <h3 className="text-lg font-medium text-foreground mb-1">No containers found</h3>
+                <p className="text-sm text-muted-foreground mb-4">
+                  No Docker containers are currently running. Deploy a service to get started.
+                </p>
+                <Button onClick={onCreateService} className="bg-primary hover:bg-primary/90">
+                  <Plus className="w-4 h-4 mr-2" />
+                  Create New Service
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Service list — click a service to open its detail page */}
+          <div className="space-y-3">
+            <AnimatePresence>
+              {filteredProjects.map((project, index) => {
+                const projectRunning = project.containers?.filter(c => c.state === 'running').length || 0;
+                const projectTotal = project.containers?.length || 0;
+
+                return (
+                  <motion.div
+                    key={project.name}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -10 }}
+                    transition={{ delay: index * 0.05 }}
+                  >
+                    <Card className="bg-card/50 border-border/50 overflow-hidden hover:border-primary/30 transition-colors">
+                      <div className="w-full flex items-center gap-3 p-4">
+                        <button
+                          onClick={() => setSelectedProjectName(project.name)}
+                          className="flex items-center gap-3 flex-1 min-w-0 text-left group"
                         >
-                          <div className="border-t border-border/30">
-                            {(project.containers || []).map((container) => {
-                              const config = getStateConfig(container.state);
-                              const portMappings = extractPortMappings(container.ports);
-                              const isRunning = container.state === 'running';
-
-                              return (
-                                <div
-                                  key={container.id}
-                                  className={cn(
-                                    'flex items-center gap-3 p-4 pl-12 border-b border-border/20 last:border-b-0',
-                                    'hover:bg-muted/20 transition-colors'
-                                  )}
-                                >
-                                  {/* Container Info */}
-                                  <div className="flex-1 min-w-0">
-                                    <div className="flex items-center gap-2 mb-1">
-                                      <span className={cn('w-2 h-2 rounded-full shrink-0', config.dotClass)} />
-                                      <span className="text-sm font-medium text-foreground truncate">{container.name}</span>
-                                      <Badge className={cn('text-[10px] px-1.5 py-0 h-4', config.bgColor, config.color, 'border-0')}>
-                                        {config.label}
-                                      </Badge>
-                                    </div>
-                                    <div className="flex items-center gap-3 text-xs text-muted-foreground ml-4">
-                                      <span className="font-mono">{container.image}</span>
-                                      {container.service && (
-                                        <>
-                                          <span className="text-muted-foreground/30">•</span>
-                                          <span>{container.service}</span>
-                                        </>
-                                      )}
-                                      {portMappings.length > 0 && (
-                                        <>
-                                          <span className="text-muted-foreground/30">•</span>
-                                          <span className="text-primary/80">{portMappings.join(', ')}</span>
-                                        </>
-                                      )}
-                                    </div>
-                                    <p className="text-[10px] text-muted-foreground/60 ml-4 mt-0.5">{container.status}</p>
-                                  </div>
-
-                                  {/* Actions - all on the right side */}
-                                  <div className="flex items-center gap-1 shrink-0">
-                                    {/* Start/Stop */}
-                                    {container.state === 'running' ? (
-                                      <Tooltip>
-                                        <TooltipTrigger asChild>
-                                          <Button
-                                            variant="ghost"
-                                            size="icon"
-                                            className="h-7 w-7 text-muted-foreground hover:text-red-400 hover:bg-red-400/10"
-                                            onClick={() => handleAction(container, 'stop')}
-                                            disabled={isActionLoading(container.id, 'stop')}
-                                          >
-                                            {isActionLoading(container.id, 'stop') ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Square className="w-3.5 h-3.5" />}
-                                          </Button>
-                                        </TooltipTrigger>
-                                        <TooltipContent>Stop</TooltipContent>
-                                      </Tooltip>
-                                    ) : (
-                                      <Tooltip>
-                                        <TooltipTrigger asChild>
-                                          <Button
-                                            variant="ghost"
-                                            size="icon"
-                                            className="h-7 w-7 text-muted-foreground hover:text-emerald-400 hover:bg-emerald-400/10"
-                                            onClick={() => handleAction(container, 'start')}
-                                            disabled={isActionLoading(container.id, 'start')}
-                                          >
-                                            {isActionLoading(container.id, 'start') ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
-                                          </Button>
-                                        </TooltipTrigger>
-                                        <TooltipContent>Start</TooltipContent>
-                                      </Tooltip>
-                                    )}
-
-                                    {/* Restart */}
-                                    <Tooltip>
-                                      <TooltipTrigger asChild>
-                                        <Button
-                                          variant="ghost"
-                                          size="icon"
-                                          className="h-7 w-7 text-muted-foreground hover:text-primary hover:bg-primary/10"
-                                          onClick={() => handleAction(container, 'restart')}
-                                          disabled={isActionLoading(container.id, 'restart')}
-                                        >
-                                          {isActionLoading(container.id, 'restart') ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-                                        </Button>
-                                      </TooltipTrigger>
-                                      <TooltipContent>Restart</TooltipContent>
-                                    </Tooltip>
-
-                                    {/* Divider */}
-                                    <div className="w-px h-4 bg-border/50 mx-0.5" />
-
-                                    {/* Pause/Unpause - only for running/paused containers */}
-                                    {container.state === 'running' && (
-                                      <Tooltip>
-                                        <TooltipTrigger asChild>
-                                          <Button
-                                            variant="ghost"
-                                            size="icon"
-                                            className="h-7 w-7 text-muted-foreground hover:text-amber-400 hover:bg-amber-400/10"
-                                            onClick={() => handleAction(container, 'pause')}
-                                            disabled={isActionLoading(container.id, 'pause')}
-                                          >
-                                            {isActionLoading(container.id, 'pause') ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Pause className="w-3.5 h-3.5" />}
-                                          </Button>
-                                        </TooltipTrigger>
-                                        <TooltipContent>Pause</TooltipContent>
-                                      </Tooltip>
-                                    )}
-                                    {container.state === 'paused' && (
-                                      <Tooltip>
-                                        <TooltipTrigger asChild>
-                                          <Button
-                                            variant="ghost"
-                                            size="icon"
-                                            className="h-7 w-7 text-muted-foreground hover:text-amber-400 hover:bg-amber-400/10"
-                                            onClick={() => handleAction(container, 'unpause')}
-                                            disabled={isActionLoading(container.id, 'unpause')}
-                                          >
-                                            {isActionLoading(container.id, 'unpause') ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
-                                          </Button>
-                                        </TooltipTrigger>
-                                        <TooltipContent>Unpause</TooltipContent>
-                                      </Tooltip>
-                                    )}
-                                    {/* Logs */}
-                                    <Tooltip>
-                                      <TooltipTrigger asChild>
-                                        <Button
-                                          variant="ghost"
-                                          size="icon"
-                                          className="h-7 w-7 text-muted-foreground hover:text-foreground hover:bg-muted"
-                                          onClick={() => openLogs(container)}
-                                        >
-                                          <FileText className="w-3.5 h-3.5" />
-                                        </Button>
-                                      </TooltipTrigger>
-                                      <TooltipContent>Logs</TooltipContent>
-                                    </Tooltip>
-                                    {/* Terminal - only for running containers */}
-                                    {isRunning && (
-                                      <Tooltip>
-                                        <TooltipTrigger asChild>
-                                          <Button
-                                            variant="ghost"
-                                            size="icon"
-                                            className="h-7 w-7 text-muted-foreground hover:text-foreground hover:bg-muted"
-                                            onClick={() => openTerminal(container)}
-                                          >
-                                            <Terminal className="w-3.5 h-3.5" />
-                                          </Button>
-                                        </TooltipTrigger>
-                                        <TooltipContent>Terminal</TooltipContent>
-                                      </Tooltip>
-                                    )}
-                                    {/* Remove */}
-                                    <Tooltip>
-                                      <TooltipTrigger asChild>
-                                        <Button
-                                          variant="ghost"
-                                          size="icon"
-                                          className="h-7 w-7 text-muted-foreground hover:text-red-400 hover:bg-red-400/10"
-                                          onClick={() => handleAction(container, 'remove')}
-                                          disabled={isActionLoading(container.id, 'remove')}
-                                        >
-                                          {isActionLoading(container.id, 'remove') ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
-                                        </Button>
-                                      </TooltipTrigger>
-                                      <TooltipContent>Remove</TooltipContent>
-                                    </Tooltip>
-                                  </div>
-                                </div>
-                              );
-                            })}
+                          <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                            <Server className="w-4 h-4 text-primary" />
                           </div>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-                  </Card>
-                </motion.div>
-              );
-            })}
-          </AnimatePresence>
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="font-medium text-foreground truncate group-hover:text-primary transition-colors">{project.name}</span>
+                            <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 shrink-0">
+                              {projectRunning}/{projectTotal} running
+                            </Badge>
+                          </div>
+                          <ChevronRight className="w-4 h-4 text-muted-foreground/40 group-hover:text-primary transition-colors shrink-0" />
+                        </button>
+
+                        {/* Status dots */}
+                        <div className="hidden sm:flex items-center gap-1 shrink-0">
+                          {project.containers?.slice(0, 4).map((c, i) => (
+                            <div
+                              key={i}
+                              className={cn('w-2 h-2 rounded-full', getStateConfig(c.state).dotClass)}
+                            />
+                          ))}
+                        </div>
+
+                        {/* Service-level actions */}
+                        {renderServiceActions(project)}
+                      </div>
+                    </Card>
+                  </motion.div>
+                );
+              })}
+            </AnimatePresence>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Logs Drawer */}
       {selectedContainer && (
