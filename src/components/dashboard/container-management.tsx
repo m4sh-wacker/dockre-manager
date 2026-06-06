@@ -67,6 +67,7 @@ export function ContainerManagement({ onCreateService }: ContainerManagementProp
   const [stateFilter, setStateFilter] = useState<string>('all');
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set());
   const [loadingActions, setLoadingActions] = useState<Record<string, string[]>>({});
+  const [loadingProjects, setLoadingProjects] = useState<Record<string, string>>({});
 
   // Container modals
   const [selectedContainer, setSelectedContainer] = useState<ContainerInfo | null>(null);
@@ -126,6 +127,47 @@ export function ContainerManagement({ onCreateService }: ContainerManagementProp
       }));
     }
   };
+
+  // Apply a lifecycle action to every container in a project (the whole service).
+  const handleProjectAction = async (project: ProjectGroup, action: 'start' | 'stop' | 'restart' | 'remove') => {
+    const containers = project.containers || [];
+    if (containers.length === 0) return;
+
+    setLoadingProjects(prev => ({ ...prev, [project.name]: action }));
+    try {
+      const results = await Promise.allSettled(
+        containers.map(c => {
+          if (action === 'start') return startContainer(c.id);
+          if (action === 'stop') return stopContainer(c.id);
+          if (action === 'restart') return restartContainer(c.id);
+          return removeContainer(c.id, true);
+        })
+      );
+      const failed = results.filter(r => r.status === 'rejected').length;
+      if (failed > 0) {
+        throw new Error(`${failed} of ${containers.length} container(s) failed`);
+      }
+      toast({
+        title: `Service ${action}ed`,
+        description: `${project.name} (${containers.length} container${containers.length > 1 ? 's' : ''}) ${action}ed.`,
+      });
+    } catch (err) {
+      toast({
+        variant: 'destructive',
+        title: `Failed to ${action} service`,
+        description: err instanceof Error ? err.message : `Could not ${action} ${project.name}.`,
+      });
+    } finally {
+      setLoadingProjects(prev => {
+        const next = { ...prev };
+        delete next[project.name];
+        return next;
+      });
+    }
+  };
+
+  const isProjectBusy = (projectName: string) => Boolean(loadingProjects[projectName]);
+  const isProjectAction = (projectName: string, action: string) => loadingProjects[projectName] === action;
 
   const openLogs = (container: ContainerInfo) => {
     setSelectedContainer(container);
@@ -384,28 +426,30 @@ export function ContainerManagement({ onCreateService }: ContainerManagementProp
                 >
                   <Card className="bg-card/50 border-border/50 overflow-hidden">
                     {/* Project Header */}
-                    <button
-                      onClick={() => toggleProject(project.name)}
-                      className="w-full flex items-center gap-3 p-4 hover:bg-muted/30 transition-colors"
-                    >
-                      <motion.div
-                        animate={{ rotate: isExpanded ? 0 : -90 }}
-                        transition={{ duration: 0.2 }}
+                    <div className="w-full flex items-center gap-3 p-4 hover:bg-muted/30 transition-colors">
+                      <button
+                        onClick={() => toggleProject(project.name)}
+                        className="flex items-center gap-3 flex-1 min-w-0 text-left"
                       >
-                        <ChevronDown className="w-4 h-4 text-muted-foreground" />
-                      </motion.div>
-                      <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
-                        <Server className="w-4 h-4 text-primary" />
-                      </div>
-                      <div className="flex-1 text-left">
-                        <div className="flex items-center gap-2">
-                          <span className="font-medium text-foreground">{project.name}</span>
-                          <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4">
+                        <motion.div
+                          animate={{ rotate: isExpanded ? 0 : -90 }}
+                          transition={{ duration: 0.2 }}
+                        >
+                          <ChevronDown className="w-4 h-4 text-muted-foreground" />
+                        </motion.div>
+                        <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                          <Server className="w-4 h-4 text-primary" />
+                        </div>
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="font-medium text-foreground truncate">{project.name}</span>
+                          <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 shrink-0">
                             {projectRunning}/{projectTotal} running
                           </Badge>
                         </div>
-                      </div>
-                      <div className="flex items-center gap-1">
+                      </button>
+
+                      {/* Status dots */}
+                      <div className="hidden sm:flex items-center gap-1 shrink-0">
                         {project.containers?.slice(0, 4).map((c, i) => (
                           <div
                             key={i}
@@ -413,7 +457,71 @@ export function ContainerManagement({ onCreateService }: ContainerManagementProp
                           />
                         ))}
                       </div>
-                    </button>
+
+                      {/* Service-level actions (apply to every container in the service) */}
+                      <div className="flex items-center gap-1 shrink-0">
+                        {projectRunning < projectTotal && (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7 text-muted-foreground hover:text-emerald-400 hover:bg-emerald-400/10"
+                                onClick={() => handleProjectAction(project, 'start')}
+                                disabled={isProjectBusy(project.name)}
+                              >
+                                {isProjectAction(project.name, 'start') ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Start all</TooltipContent>
+                          </Tooltip>
+                        )}
+                        {projectRunning > 0 && (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7 text-muted-foreground hover:text-red-400 hover:bg-red-400/10"
+                                onClick={() => handleProjectAction(project, 'stop')}
+                                disabled={isProjectBusy(project.name)}
+                              >
+                                {isProjectAction(project.name, 'stop') ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Square className="w-3.5 h-3.5" />}
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Stop all</TooltipContent>
+                          </Tooltip>
+                        )}
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 text-muted-foreground hover:text-primary hover:bg-primary/10"
+                              onClick={() => handleProjectAction(project, 'restart')}
+                              disabled={isProjectBusy(project.name)}
+                            >
+                              {isProjectAction(project.name, 'restart') ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>Restart all</TooltipContent>
+                        </Tooltip>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 text-muted-foreground hover:text-red-400 hover:bg-red-400/10"
+                              onClick={() => handleProjectAction(project, 'remove')}
+                              disabled={isProjectBusy(project.name)}
+                            >
+                              {isProjectAction(project.name, 'remove') ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>Remove all</TooltipContent>
+                        </Tooltip>
+                      </div>
+                    </div>
 
                     {/* Containers List */}
                     <AnimatePresence>
@@ -439,7 +547,34 @@ export function ContainerManagement({ onCreateService }: ContainerManagementProp
                                     'hover:bg-muted/20 transition-colors'
                                   )}
                                 >
-                                  {/* Action Buttons - Left Side (Docker Desktop Style) */}
+                                  {/* Container Info */}
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-2 mb-1">
+                                      <span className={cn('w-2 h-2 rounded-full shrink-0', config.dotClass)} />
+                                      <span className="text-sm font-medium text-foreground truncate">{container.name}</span>
+                                      <Badge className={cn('text-[10px] px-1.5 py-0 h-4', config.bgColor, config.color, 'border-0')}>
+                                        {config.label}
+                                      </Badge>
+                                    </div>
+                                    <div className="flex items-center gap-3 text-xs text-muted-foreground ml-4">
+                                      <span className="font-mono">{container.image}</span>
+                                      {container.service && (
+                                        <>
+                                          <span className="text-muted-foreground/30">•</span>
+                                          <span>{container.service}</span>
+                                        </>
+                                      )}
+                                      {portMappings.length > 0 && (
+                                        <>
+                                          <span className="text-muted-foreground/30">•</span>
+                                          <span className="text-primary/80">{portMappings.join(', ')}</span>
+                                        </>
+                                      )}
+                                    </div>
+                                    <p className="text-[10px] text-muted-foreground/60 ml-4 mt-0.5">{container.status}</p>
+                                  </div>
+
+                                  {/* Actions - all on the right side */}
                                   <div className="flex items-center gap-1 shrink-0">
                                     {/* Start/Stop */}
                                     {container.state === 'running' ? (
@@ -492,37 +627,7 @@ export function ContainerManagement({ onCreateService }: ContainerManagementProp
 
                                     {/* Divider */}
                                     <div className="w-px h-4 bg-border/50 mx-0.5" />
-                                  </div>
 
-                                  {/* Container Info */}
-                                  <div className="flex-1 min-w-0">
-                                    <div className="flex items-center gap-2 mb-1">
-                                      <span className={cn('w-2 h-2 rounded-full shrink-0', config.dotClass)} />
-                                      <span className="text-sm font-medium text-foreground truncate">{container.name}</span>
-                                      <Badge className={cn('text-[10px] px-1.5 py-0 h-4', config.bgColor, config.color, 'border-0')}>
-                                        {config.label}
-                                      </Badge>
-                                    </div>
-                                    <div className="flex items-center gap-3 text-xs text-muted-foreground ml-4">
-                                      <span className="font-mono">{container.image}</span>
-                                      {container.service && (
-                                        <>
-                                          <span className="text-muted-foreground/30">•</span>
-                                          <span>{container.service}</span>
-                                        </>
-                                      )}
-                                      {portMappings.length > 0 && (
-                                        <>
-                                          <span className="text-muted-foreground/30">•</span>
-                                          <span className="text-primary/80">{portMappings.join(', ')}</span>
-                                        </>
-                                      )}
-                                    </div>
-                                    <p className="text-[10px] text-muted-foreground/60 ml-4 mt-0.5">{container.status}</p>
-                                  </div>
-
-                                  {/* Secondary Actions - Right Side */}
-                                  <div className="flex items-center gap-1 shrink-0">
                                     {/* Pause/Unpause - only for running/paused containers */}
                                     {container.state === 'running' && (
                                       <Tooltip>
