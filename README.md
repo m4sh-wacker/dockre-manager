@@ -103,6 +103,11 @@ INSERT INTO users (id, username, password_hash) VALUES (
 
 ### 2. Run the app
 
+The backend is cross-platform (it only shells out to the `docker` CLI, which is
+identical on Windows and Linux). Pick the commands for your OS.
+
+**Linux / macOS**
+
 ```bash
 cp .env.example .env   # then edit DATABASE_URL / JWT_SECRET if needed
 
@@ -111,8 +116,20 @@ cd mini-services/docker-manager
 go mod tidy && go build -o docker-manager && ./docker-manager
 
 # frontend (in another terminal)
-npm install
-npm run dev
+npm install && npm run dev
+```
+
+**Windows (PowerShell)**
+
+```powershell
+Copy-Item .env.example .env   # then edit DATABASE_URL / JWT_SECRET if needed
+
+# backend
+cd mini-services/docker-manager
+go mod tidy ; go build -o docker-manager.exe ; .\docker-manager.exe
+
+# frontend (in another terminal)
+npm install ; npm run dev
 ```
 
 Open http://localhost:3000 and sign in:
@@ -122,9 +139,32 @@ username: admin
 password: admin123
 ```
 
-> **Important:** both processes must be running. The frontend (port 3000) talks
-> to the Go backend (port 3030); if the backend isn't up you'll see
+> **Important:** Docker must be running, and both the backend (port 3030) and
+> frontend (port 3000) must be up. If the backend is down you'll see
 > `Failed to fetch` errors in the dashboard.
+
+## Docker commands used (command-based, no Docker SDK)
+
+The backend never talks to the Docker API/SDK — every Docker operation is a plain
+CLI command run through `os/exec`, so it behaves the same on Windows and Linux.
+These are all the commands it issues:
+
+| Feature                | Command                                                              |
+| ---------------------- | ------------------------------------------------------------------- |
+| List containers        | `docker ps -a --format "{{.ID}}|||{{.Names}}|||..."`                |
+| Start container        | `docker start <id>`                                                  |
+| Stop container         | `docker stop -t 10 <id>`                                             |
+| Restart container      | `docker restart -t 10 <id>`                                          |
+| Pause / unpause        | `docker pause <id>` / `docker unpause <id>`                          |
+| Remove container       | `docker rm [-f] <id>`                                                |
+| Container logs         | `docker logs --tail <n> <id>`                                        |
+| Exec in container      | `docker exec <id> /bin/sh -c "<command>"`                            |
+| Inspect container      | `docker inspect <id>`                                                |
+| Running / total counts | `docker ps -q` and `docker ps -a -q`                                 |
+| Deploy a service       | `docker compose -p <name> -f <compose-file> [--env-file <env>] up -d --build` |
+
+> System metrics (CPU / memory / disk) are read directly from the OS via
+> `gopsutil`, also cross-platform.
 
 ## Configuration (`.env`)
 

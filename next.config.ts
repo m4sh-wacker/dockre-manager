@@ -1,7 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  "devIndicators":false,
+  // Hide the Next.js dev indicator / debug logo
+  devIndicators: false,
   output: "standalone",
   typescript: {
     ignoreBuildErrors: true,
