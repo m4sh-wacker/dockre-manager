@@ -74,12 +74,6 @@ function resourceBarColor(percent: number): string {
   return 'bg-emerald-400';
 }
 
-function resourceTextColor(percent: number): string {
-  if (percent > 80) return 'text-red-400';
-  if (percent > 50) return 'text-amber-400';
-  return 'text-emerald-400';
-}
-
 interface ContainerManagementProps {
   onCreateService?: () => void;
 }
@@ -520,7 +514,7 @@ export function ContainerManagement({ onCreateService }: ContainerManagementProp
                       <Cpu className="w-4 h-4 text-primary" />
                     </div>
                     <span className="text-sm font-medium text-foreground">CPU</span>
-                    <span className={cn('ml-auto text-lg font-semibold', resourceTextColor(systemResources?.cpu_percent ?? 0))}>{systemResources?.cpu_percent?.toFixed(1) ?? '0.0'}%</span>
+                    <span className="ml-auto text-lg font-semibold text-foreground">{systemResources?.cpu_percent?.toFixed(1) ?? '0.0'}%</span>
                   </div>
                   <div className="h-1.5 bg-muted rounded-full overflow-hidden">
                     <div className={cn('h-full rounded-full transition-all', resourceBarColor(systemResources?.cpu_percent ?? 0))} style={{ width: `${Math.min(systemResources?.cpu_percent ?? 0, 100)}%` }} />
@@ -535,7 +529,7 @@ export function ContainerManagement({ onCreateService }: ContainerManagementProp
                       <MemoryStick className="w-4 h-4 text-amber-400" />
                     </div>
                     <span className="text-sm font-medium text-foreground">Memory</span>
-                    <span className={cn('ml-auto text-lg font-semibold', resourceTextColor(systemResources?.memory_percent ?? 0))}>{systemResources?.memory_percent?.toFixed(1) ?? '0.0'}%</span>
+                    <span className="ml-auto text-lg font-semibold text-foreground">{systemResources?.memory_percent?.toFixed(1) ?? '0.0'}%</span>
                   </div>
                   <div className="h-1.5 bg-muted rounded-full overflow-hidden">
                     <div className={cn('h-full rounded-full transition-all', resourceBarColor(systemResources?.memory_percent ?? 0))} style={{ width: `${Math.min(systemResources?.memory_percent ?? 0, 100)}%` }} />
@@ -551,7 +545,7 @@ export function ContainerManagement({ onCreateService }: ContainerManagementProp
                       <HardDrive className="w-4 h-4 text-emerald-400" />
                     </div>
                     <span className="text-sm font-medium text-foreground">Disk</span>
-                    <span className={cn('ml-auto text-lg font-semibold', resourceTextColor(systemResources?.disk_percent ?? 0))}>{systemResources?.disk_percent?.toFixed(1) ?? '0.0'}%</span>
+                    <span className="ml-auto text-lg font-semibold text-foreground">{systemResources?.disk_percent?.toFixed(1) ?? '0.0'}%</span>
                   </div>
                   <div className="h-1.5 bg-muted rounded-full overflow-hidden">
                     <div className={cn('h-full rounded-full transition-all', resourceBarColor(systemResources?.disk_percent ?? 0))} style={{ width: `${Math.min(systemResources?.disk_percent ?? 0, 100)}%` }} />
