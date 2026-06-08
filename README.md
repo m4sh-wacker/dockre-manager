@@ -1,4 +1,4 @@
-# Dockre Manager
+# Dockre Manager Documentation
 
 A lightweight Docker management dashboard. A **Next.js** frontend talks to a small
 **Go** backend that drives Docker through the `docker` CLI (command-based, no Docker
