@@ -1,0 +1,27 @@
+# ─── Node / Playwright (browser e2e) ───────────────────────────────
+node_modules/
+
+# Playwright outputs
+/test-results/
+/playwright-report/
+/playwright/.cache/
+/blob-report/
+
+# Downloaded browsers (if PLAYWRIGHT_BROWSERS_PATH=0 keeps them local)
+/ms-playwright/
+
+# ─── Go (API e2e) ──────────────────────────────────────────────────
+# Compiled test binaries (e.g. `go test -c`)
+*.exe
+*.test
+e2e_test_bin*
+
+# ─── Env / secrets ─────────────────────────────────────────────────
+.env
+.env.local
+*.local
+
+# ─── Misc ──────────────────────────────────────────────────────────
+*.log
+.DS_Store
+Thumbs.db

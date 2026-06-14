@@ -1,0 +1,14 @@
+{
+  "name": "dockre-manager-e2e-browser",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Browser-driven end-to-end tests (Playwright) for Dockre Manager. Self-contained — does not touch the main project.",
+  "scripts": {
+    "test:ui": "playwright test",
+    "test:ui:headed": "playwright test --headed",
+    "install:browsers": "playwright install chromium"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.0"
+  }
+}
