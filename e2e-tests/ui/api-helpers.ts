@@ -4,6 +4,11 @@
 // talk to the Go backend directly so we can guarantee a clean, repeatable
 // starting state (admin password) and tidy up the container we create.
 
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+
+const execFileAsync = promisify(execFile);
+
 const BACKEND = process.env.E2E_BASE_URL || 'http://localhost:3030';
 
 export const ADMIN_USER = process.env.E2E_USERNAME || 'admin';
@@ -79,4 +84,21 @@ export async function removeProjectContainers(project: string): Promise<void> {
       headers: { Authorization: `Bearer ${token}` },
     }).catch(() => undefined);
   }
+}
+
+// Fully tear a compose project down — containers AND the `<project>_default`
+// network AND volumes. Removing the API containers alone leaks the network,
+// which eventually exhausts Docker's address pool ("all predefined address
+// pools have been fully subnetted"). Best-effort; ignores errors.
+export async function composeDown(project: string): Promise<void> {
+  await execFileAsync('docker', ['compose', '-p', project, 'down', '-v', '--remove-orphans'])
+    .catch(() => undefined);
+  // Safety net in case the network outlived the project record.
+  await execFileAsync('docker', ['network', 'rm', `${project}_default`]).catch(() => undefined);
+}
+
+// Reclaim any networks left behind by previous/aborted runs so the address
+// pool never fills up. Safe: `network prune` only removes unused networks.
+export async function pruneNetworks(): Promise<void> {
+  await execFileAsync('docker', ['network', 'prune', '-f']).catch(() => undefined);
 }

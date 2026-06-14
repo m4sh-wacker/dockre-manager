@@ -4,27 +4,52 @@ import {
   ORIG_PASSWORD,
   NEW_PASSWORD,
   ensureAdminPassword,
-  removeProjectContainers,
+  composeDown,
+  pruneNetworks,
 } from './api-helpers';
 
-// A docker-compose-safe, unique project name for this run.
-const PROJECT = `e2eui${Date.now()}`;
+// A docker-compose-safe project name with a random 10-digit suffix, so
+// collisions are extremely unlikely without needing any database/tracking.
+const PROJECT = `e2eui${Math.floor(1e9 + Math.random() * 9e9)}`;
+
+// When E2E_KEEP is set (1/true/yes), skip teardown so you can inspect the
+// result afterwards in the UI (password stays changed, container stays up).
+const KEEP = /^(1|true|yes)$/i.test(process.env.E2E_KEEP ?? '');
 
 // ---------------------------------------------------------------------------
 // Setup / teardown — keep the admin account and Docker state repeatable.
 // ---------------------------------------------------------------------------
 
 test.beforeAll(async () => {
+  // Loud diagnostic so it's obvious whether E2E_KEEP reached this process and
+  // whether this (updated) version of the file is the one running.
+  console.log(`[e2e] E2E_KEEP=${JSON.stringify(process.env.E2E_KEEP)} -> KEEP=${KEEP}`);
+
   // Whatever a previous (maybe crashed) run left behind, make sure we start
   // with the known original password so the UI login below works.
   await ensureAdminPassword(ORIG_PASSWORD);
+
+  // Reclaim leaked networks from earlier runs so Docker's address pool can't
+  // fill up ("all predefined address pools have been fully subnetted").
+  await pruneNetworks();
 });
 
 test.afterAll(async () => {
   // Restore the password and remove the container we created, so the next run
   // starts clean. Best-effort — never fail the suite on cleanup.
+  // Skipped entirely when E2E_KEEP=1 so the traces are left for inspection.
+  if (KEEP) {
+    console.log(
+      `\n[e2e] E2E_KEEP=1 — leaving traces in place:\n` +
+      `      • admin password is now "${NEW_PASSWORD}" (not restored)\n` +
+      `      • container/project "${PROJECT}" is still deployed (stopped)\n`,
+    );
+    return;
+  }
   await ensureAdminPassword(ORIG_PASSWORD).catch(() => undefined);
-  await removeProjectContainers(PROJECT).catch(() => undefined);
+  // Tear the whole project down (containers + network + volumes), not just the
+  // containers, so we never leak the `<project>_default` network.
+  await composeDown(PROJECT).catch(() => undefined);
 });
 
 // ---------------------------------------------------------------------------

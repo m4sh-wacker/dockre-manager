@@ -117,6 +117,24 @@ Changing the password really mutates the `admin` account, so:
 - The journey changes the password to `NEW_PASSWORD`, then `afterAll` restores
   it to the original and removes the container it created.
 
+### Leaving the traces (E2E_KEEP)
+
+By default the teardown erases everything the run did. To **keep** the changed
+password and the deployed container so you can inspect them in the UI
+afterwards:
+
+```bash
+E2E_KEEP=1 npm run test:ui
+# PowerShell:  $env:E2E_KEEP=1; npm run test:ui
+```
+
+With `E2E_KEEP=1`, `afterAll` is skipped and prints what was left behind:
+the admin password stays `NEW_PASSWORD` and the `e2eui…` project stays
+deployed (stopped). This is safe to do — the **next** normal run's `beforeAll`
+self-heals the password back to the original automatically. Remove a leftover
+container manually with `docker compose -p <project> down -v` (the project name
+is printed at the end of the run).
+
 ## Browser-test configuration
 
 | Variable | Default | Purpose |
@@ -128,4 +146,5 @@ Changing the password really mutates the `admin` account, so:
 | `E2E_NEW_PASSWORD` | `NewE2EPass123!` | Password the journey switches to |
 | `E2E_HEADLESS` | _(unset)_ | `1` = run headless |
 | `E2E_SLOWMO` | `800` (headed) | ms delay between actions, so the run is watchable; `0` = full speed |
+| `E2E_KEEP` | _(unset)_ | `1` = skip teardown; keep the changed password & deployed container for inspection |
 | `E2E_NO_WEBSERVER` | _(unset)_ | `1` = don't auto-start the frontend |
