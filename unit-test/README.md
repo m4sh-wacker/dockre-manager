@@ -19,15 +19,8 @@ Covered flows:
 ## Running
 
 ```bash
-cd "Unit Test"
+cd unit-test
 go test -v ./...
-```
-
-To run only the admin login unit test:
-
-```bash
-cd "Unit Test"
-go test -v -run TestLogin_AdminCredentialsPass
 ```
 
 ## Notes
